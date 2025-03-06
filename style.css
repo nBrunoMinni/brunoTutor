@@ -1,0 +1,198 @@
+html {
+  height: 100%;
+}
+
+body {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  font-family: Arial, sans-serif;
+  line-height: 1.6;
+}
+
+.main {
+  flex: 1;
+  padding: 20px;
+}
+
+.footer {
+  background-color: #f8f9fa;
+  padding: 2rem;
+  text-align: center;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.text-center {
+  text-align: center;
+  margin-top: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  margin: -10px;
+}
+
+.col {
+  flex: 1 1 calc(50% - 20px);
+  padding-left: 10px;
+  padding-right: 10px;
+  box-sizing: border-box;
+}
+
+@media (max-width: 840px) {
+  .col {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+
+  .row {
+    flex-direction: column;
+  }
+}
+@media (max-width: 600px) {
+  .container {
+    padding: 12px;
+  }
+
+  h2 {
+    font-size: 1.2rem;
+  }
+
+  .buttons-container {
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .chunky-button {
+    flex: 1 1 100%;
+    max-width: 100%;
+    min-width: auto;
+  }
+
+  h1 {
+    font-size: min(
+      6vw,
+      1.6rem
+    ); 
+    text-align: center;
+  }
+
+  .inline-content {
+    flex-direction: column; 
+    align-items: center;
+    text-align: center;
+  }
+
+  img {
+    width: 80px; 
+    max-width: 100%;
+  }
+}
+
+h1 {
+  font-size: 2rem;
+  margin-bottom: 0;
+}
+
+h2 {
+  font-size: 1.5rem;
+  margin-bottom: 0.3rem;
+}
+
+p {
+  margin: 6px 0;
+}
+
+a {
+  color: black;
+}
+
+img {
+  clip-path: circle(46%);
+  width: 100px;
+}
+
+.inline-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.buttons-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+  padding-top: 10px;
+}
+
+.chunky-button {
+  flex: 1 1 calc(33.33% - 20px);
+  max-width: 300px;
+  min-width: 200px;
+  display: block;
+  text-decoration: none;
+  background-color: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid #ddd;
+}
+
+.chunky-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+.chunky-button h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.button-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #555;
+}
+
+.info-row svg {
+  width: 20px;
+  height: 20px;
+}
+
+.badge-wrapper {
+  .badge-wrapper {
+    display: flex;
+    flex-wrap: wrap; 
+    gap: 5px; 
+    max-width: 100%; 
+    overflow: hidden;
+  }
+}
+
+.badge {
+  background-color: #007bff;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 10px;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
