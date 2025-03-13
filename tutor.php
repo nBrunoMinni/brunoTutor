@@ -1,8 +1,34 @@
 <?php
-$host = "localhost";
-$username = "interalp_brunoDB";
-$password = "jfjOjhfqqhlfi*#**0nj1";
-$database = "interalp_brunoDB";
+ini_set('session.cookie_httponly', 1);
+ini_set('session.cookie_secure', 1);
+ini_set('session.use_only_cookies', 1);
+session_start();
+session_regenerate_id(true);
+require_once(__DIR__ . '/../../config/config.php');
+header("X-Content-Type-Options: nosniff");
+header("X-XSS-Protection: 1; mode=block");
+if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
+    if (!in_array($_SERVER['HTTP_HOST'], ['localhost', '127.0.0.1'])) {
+        header("Location: https://" . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+}
+
+function nl2p($text)
+{
+    $text = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+    $text = preg_replace('/\*\*(.*?)\*\*/s', '<strong>$1</strong>', $text);
+    $text = preg_replace('/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/s', '<em>$1</em>', $text);
+
+    $text = str_replace(["\r\n", "\r"], "\n", $text);
+    $paragraphs = preg_split('/\n{2,}/', $text);
+    $paragraphs = array_map('trim', $paragraphs);
+    $paragraphs = array_filter($paragraphs);
+    $paragraphs = array_map(function ($p) {
+        return str_replace("\n", '<br>', $p);
+    }, $paragraphs);
+    return '<p>' . implode('</p><p>', $paragraphs) . '</p>';
+}
 
 $dbc = new mysqli($host, $username, $password, $database);
 if ($dbc->connect_error) {
@@ -20,35 +46,56 @@ foreach ($rows as $row) {
     $tutors[$tutorKey] = $row;
 }
 $pageFile = isset($_GET['name']) ? strtolower(trim($_GET['name'])) : "";
-// If no matching tutor, redirect home
 if (!array_key_exists($pageFile, $tutors)) {
     header("Location: /");
     exit;
 }
-// Fetch tutor data
 $tutorData = $tutors[$pageFile];
 ?>
 <!doctype html>
 <html>
+
 <head>
     <title>BrunoTutor.com - <?= htmlspecialchars($tutorData['name']); ?></title>
     <meta charset='utf-8' />
     <link href="style.css" rel="stylesheet">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/x-icon" href="home.ico">
+    <style>
+        .content-section p {
+            margin-bottom: 1em;
+        }
+
+        .content-section p:last-child {
+            margin-bottom: 0;
+        }
+    </style>
 </head>
+
 <body>
     <main class="main">
         <div class="container">
             <div class="row">
                 <div class="col">
                     <div class="inline-content">
-                        <a href="<?= htmlspecialchars($pageFile) ?>.png" target="_blank">
-                            <img src="<?= htmlspecialchars($pageFile) ?>.png" title="<?= htmlspecialchars($pageFile) ?>">
+                        <a href="uploads/<?= htmlspecialchars($tutorData['key']); ?>.png" target="_blank">
+                            <img src="uploads/<?= htmlspecialchars($tutorData['key']); ?>.png" title="<?= htmlspecialchars($tutorData['key']); ?>">
                         </a>
                         <div>
                             <h1 class="text-center"><?= htmlspecialchars($tutorData['name']); ?></h1>
-                            <p class="text-center"><?= $tutorData['contact'] ?? "No contact available."; ?></p>
+                            <p class="text-center">
+                                <?php if (!empty($tutorData['URL'])): ?>
+                                    <a href="<?= htmlspecialchars($tutorData['URL']); ?>" target="_blank"><?= htmlspecialchars($tutorData['contact']); ?></a>
+                                <?php else: ?>
+                                    <?= htmlspecialchars($tutorData['contact']); ?>
+                                <?php endif; ?>
+                                &nbsp;&nbsp;
+                                <?php if (!empty($tutorData['URL2'])): ?>
+                                    <a href="<?= htmlspecialchars($tutorData['URL2']); ?>" target="_blank"><?= htmlspecialchars($tutorData['contact2']); ?></a>
+                                <?php else: ?>
+                                    <?= htmlspecialchars($tutorData['contact2']); ?>
+                                <?php endif; ?>
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -56,22 +103,28 @@ $tutorData = $tutors[$pageFile];
             <div class="row">
                 <div class="col">
                     <h2>About Me</h2>
-                    <p><?= $tutorData['about'] ?? "No bio information available."; ?></p>
+                    <div class="content-section">
+                        <?= nl2p($tutorData['about'] ?? "No bio information available."); ?>
+                    </div>
                 </div>
                 <div class="col">
                     <h2>Lessons</h2>
-                    <p><?= $tutorData['lessons'] ?? "No lesson information available."; ?></p>
+                    <div class="content-section">
+                        <?= nl2p($tutorData['lessons'] ?? "No lesson information available."); ?>
+                    </div>
                 </div>
             </div>
             <div style="text-align: center;">
                 <h2>Booking</h2>
-                <p><?= $tutorData['booking'] ?? "No booking information available."; ?></p>
+                <div class="content-section">
+                    <?= nl2p($tutorData['booking'] ?? "No booking information available."); ?>
+                </div>
             </div>
             <div class="buttons-container">
                 <?php for ($i = 1; $i <= 3; $i++): ?>
                     <?php if (!empty($tutorData["lesson{$i}"])): ?>
                         <a href="#lesson<?= $i ?>" class="chunky-button"
-                            data-cal-link="<?= $tutorData["calUser"] ?? "" ?>/<?= $i ?>"
+                            data-cal-link="<?= htmlspecialchars($tutorData["calUser"] ?? "") ?>/<?= $i ?>"
                             data-cal-namespace="<?= $i ?>"
                             data-cal-config='{"layout":"month_view"}'>
                             <h2><?= htmlspecialchars($tutorData["lesson{$i}"]); ?></h2>
@@ -101,10 +154,11 @@ $tutorData = $tutors[$pageFile];
             </div>
         </div>
     </main>
+
     <footer class="footer">
         <small><a href="https://www.brunotutor.com">BrunoTutor.com</a> &copy; <?php echo date("Y"); ?></small><br>
+        <small><a href="https://www.brunotutor.com/regTutor.php">Create page</a> • <a href="https://www.brunotutor.com/tos.php">Terms of service</a></small>
     </footer>
-    <!-- Cal dot com popovers -->
     <script type="text/javascript">
         (function(C, A, L) {
             let p = function(a, ar) {

@@ -1,0 +1,32 @@
+input, button {
+    border-radius: 4px;
+    border: 1px solid rgba(169, 169, 169, 0.3);
+    padding: 8px 12px;
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 15px;
+}
+
+button {
+    background-color: #ADDFB3;
+    cursor: pointer;
+    font-weight: bold;
+    padding: 10px;
+    margin-top: 10px;
+}
+
+button:hover {
+    background-color: #9AD0A0;
+}
+
+.form-container {
+    text-align: left;
+    padding: 0 20px;
+}
+
+.verification-input {
+    letter-spacing: 0.5em;
+    text-align: center;
+    font-size: 1.5em;
+    font-weight: bold;
+}
