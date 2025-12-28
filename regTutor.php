@@ -17,30 +17,85 @@ if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
     }
 }
 
+// Detect language from subdomain
+$httpHost = $_SERVER['HTTP_HOST'];
+
+if (preg_match('/^([a-z]{2})\.brunotutor\.com/', $httpHost, $matches)) {
+    $detectedLang = $matches[1];
+
+    $tempDbc = new mysqli($host, $username, $password, $database);
+    if (!$tempDbc->connect_error) {
+        $tempDbc->set_charset("utf8mb4");
+        $checkLang = $tempDbc->prepare("SELECT lang FROM UILanguage WHERE lang = ? LIMIT 1");
+        $checkLang->bind_param('s', $detectedLang);
+        $checkLang->execute();
+        $langResult = $checkLang->get_result();
+
+        if ($langResult && $langResult->num_rows === 1) {
+            $_SESSION['lang'] = $detectedLang;
+        } else {
+            $_SESSION['lang'] = 'en';
+        }
+        $checkLang->close();
+        $tempDbc->close();
+    }
+} else {
+    if (!isset($_SESSION['lang'])) {
+        $_SESSION['lang'] = 'en';
+    }
+}
+
+$userLang = $_SESSION['lang'];
+
 $dbc = new mysqli($host, $username, $password, $database);
 if ($dbc->connect_error) {
     die("DB connection failed: " . $dbc->connect_error);
 }
+$dbc->set_charset("utf8mb4");
 
-// HTML escaping, should apply this everywhere
+// Fetch UI language strings
+$stmt = $dbc->prepare("SELECT * FROM UILanguage WHERE lang = ? LIMIT 1");
+$stmt->bind_param('s', $userLang);
+$stmt->execute();
+$result = $stmt->get_result();
+
+if ($result && $result->num_rows === 1) {
+    $lang = $result->fetch_assoc();
+} else {
+    // Fallback English
+    $stmt = $dbc->prepare("SELECT * FROM UILanguage WHERE lang = 'en' LIMIT 1");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $lang = $result->fetch_assoc();
+}
+$stmt->close();
+
+// Fetch available languages
+$langStmt = $dbc->query("SELECT lang, UILanguage FROM UILanguage ORDER BY lang ASC");
+$availableLanguages = [];
+while ($langRow = $langStmt->fetch_assoc()) {
+    $availableLanguages[] = $langRow;
+}
+
+// HTML escaping
 function e($str)
 {
     return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
 }
 
-function sendVerificationEmail($email, $code)
+function sendVerificationEmail($email, $code, $lang)
 {
     $to = $email;
-    $subject = "BrunoTutor Email Verification";
+    $subject = "BrunoTutor " . $lang['emailVerification'];
     $message = "
     <html>
     <head>
-        <title>Email Verification</title>
+        <title>" . htmlspecialchars($lang['emailVerification'], ENT_QUOTES, 'UTF-8') . "</title>
     </head>
     <body>
-        <p>Thank you for registering with BrunoTutor!</p>
-        <p>Your verification code is: <strong>{$code}</strong></p>
-        <p>This code will expire in 10 minutes.</p>
+        <p>" . htmlspecialchars($lang['thankReg'], ENT_QUOTES, 'UTF-8') . "</p>
+        <p>" . htmlspecialchars($lang['code'], ENT_QUOTES, 'UTF-8') . " <strong>{$code}</strong></p>
+        <p>" . htmlspecialchars($lang['expire'], ENT_QUOTES, 'UTF-8') . "</p>
     </body>
     </html>
     ";
@@ -62,7 +117,7 @@ $error = "";
 // STEP 1: Initial registration form
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
     if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        $error = "Security validation failed. Please try again.";
+        $error = $lang['securityFail'];
     } else {
         $userLogin = $_POST['userLogin'] ?? '';
         $plainPass = $_POST['userPassword'] ?? '';
@@ -70,15 +125,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
         $email = $_POST['email'] ?? '';
 
         if (empty($userLogin) || empty($plainPass) || empty($confirmPass) || empty($email)) {
-            $error = "All fields are required.";
+            $error = $lang['required'];
         } elseif ($plainPass !== $confirmPass) {
-            $error = "Passwords do not match. Please try again.";
+            $error = $lang['passwordMatch'];
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $error = "Please enter a valid email address.";
-        } elseif (strlen($userLogin) > 20) {
-            $error = "Username must be 20 characters or less.";
-        } elseif (!preg_match('/^[a-z0-9-]+$/', $userLogin)) {
-            $error = "Username can only contain lowercase letters, numbers, and dashes (-)";
+            $error = $lang['emailValid'];
+        } elseif (strlen($userLogin) > 20 || !preg_match('/^[a-z0-9-]+$/', $userLogin)) {
+            $error = $lang['usernameRules'];
         } else {
             // If username exists
             $stmtCheck = $dbc->prepare("SELECT 1 FROM bruno WHERE userLogin = ? LIMIT 1");
@@ -86,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
             $stmtCheck->execute();
             $resCheck = $stmtCheck->get_result();
             if ($resCheck && $resCheck->num_rows > 0) {
-                $error = "That username is already taken. Please choose another.";
+                $error = $lang['userTaken'];
             }
             $stmtCheck->close();
 
@@ -95,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
             $stmtCheckTemp->execute();
             $resCheckTemp = $stmtCheckTemp->get_result();
             if ($resCheckTemp && $resCheckTemp->num_rows > 0) {
-                $error = "That username is already taken. Please choose another.";
+                $error = $lang['userTaken'];
             }
             $stmtCheckTemp->close();
 
@@ -105,7 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
             $stmtCheckEmailTemp->execute();
             $resCheckEmailTemp = $stmtCheckEmailTemp->get_result();
             if ($resCheckEmailTemp && $resCheckEmailTemp->num_rows > 0) {
-                $error = "That email address is already registered.";
+                $error = $lang['emailTaken'];
             }
             $stmtCheckEmailTemp->close();
         }
@@ -122,14 +175,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
             $_SESSION['reg_expiry'] = $expiryTime;
             $_SESSION['reg_attempts'] = 0;
 
-            $emailSent = sendVerificationEmail($email, $verificationCode);
+            $emailSent = sendVerificationEmail($email, $verificationCode, $lang);
 
             if ($emailSent) {
                 $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
                 header("Location: regTutor.php?verify=1");
                 exit;
             } else {
-                $error = "Failed to send verification email. Please try again.";
+                $error = $lang['failedToSend'];
             }
         }
     }
@@ -138,14 +191,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
 // STEP 2: Verify email with code
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify'])) {
     if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        $error = "Security validation failed. Please try again.";
+        $error = $lang['securityFail'];
     } else {
         $enteredCode = $_POST['verification_code'] ?? '';
 
         if (!isset($_SESSION['reg_code']) || !isset($_SESSION['reg_expiry'])) {
-            $error = "Verification session expired. Please start over.";
+            $error = $lang['verificationFail'];
         } elseif (time() > $_SESSION['reg_expiry']) {
-            $error = "Verification code has expired. Please start over.";
+            $error = $lang['verificationFail'];
             // Clear expired session
             unset($_SESSION['reg_code']);
             unset($_SESSION['reg_expiry']);
@@ -158,13 +211,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify'])) {
 
             $_SESSION['reg_attempts']++;
             if ($_SESSION['reg_attempts'] >= 3) {
-                $error = "Too many failed attempts. Please start over.";
+                $error = $lang['verificationFail'];
                 unset($_SESSION['reg_code']);
                 unset($_SESSION['reg_expiry']);
                 unset($_SESSION['reg_attempts']);
             } else {
                 $remainingAttempts = 3 - $_SESSION['reg_attempts'];
-                $error = "Invalid verification code. Please try again. You have {$remainingAttempts} attempts remaining.";
+                $error = $lang['invalid'] . " {$remainingAttempts} " . $lang['attempts'];
             }
         } else {
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
@@ -180,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify'])) {
 <html>
 
 <head>
-    <title>BrunoTutor.com - Register New Tutor</title>
+    <title>BrunoTutor.com - <?= e($lang['register']); ?></title>
     <link href="style.css" rel="stylesheet">
     <link href="logStyle.css" rel="stylesheet">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -191,15 +244,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify'])) {
     <main class="main">
         <div class="container" style="max-width: 400px; margin: 0 auto; align-items: center; text-align: center;">
             <?php if (!empty($error)): ?>
-                <p style="color:red;"><strong>Error:</strong> <?= e($error) ?></p>
+                <p style="color:red;"><strong><?= e($lang['error']); ?></strong> <?= e($error) ?></p>
             <?php endif; ?>
             <?php if (!empty($success)): ?>
-                <p style="color:green;"><strong>Success:</strong> <?= e($success) ?></p>
+                <p style="color:green;"><strong><?= e($lang['success']); ?></strong> <?= e($success) ?></p>
             <?php endif; ?>
+
             <?php if (isset($_GET['verify'])): ?>
-                <h1>Verify Your Email</h1>
-                <p>A verification code has been sent to <strong><?= e($_SESSION['reg_email'] ?? '') ?></strong></p>
-                <p>Please enter the 6-digit code to continue:</p>
+                <h1><?= e($lang['verify']); ?></h1>
+                <p><?= e($lang['verificationSent']); ?> <strong><?= e($_SESSION['reg_email'] ?? '') ?></strong></p>
+                <p><?= e($lang['pleaseEnter']); ?></p>
                 <div class="form-container">
                     <form method="post" action="regTutor.php?verify=1">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
@@ -207,59 +261,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify'])) {
                             <input type="text" name="verification_code" class="verification-input"
                                 maxlength="6" pattern="[0-9]{6}" placeholder="000000" required>
                         </div>
-                        <button type="submit" name="verify">Verify Code</button>
+                        <button type="submit" name="verify"><?= e($lang['verify']); ?></button>
                     </form>
                     <p style="text-align: center; margin-top: 20px;">
-                        <a href="regTutor.php">Back to Registration</a>
+                        <a href="regTutor.php"><?= e($lang['register']); ?></a>
                         <?php if (isset($_SESSION['reg_attempts']) && $_SESSION['reg_attempts'] > 0): ?>
-                            <br><small>Failed attempts: <?= $_SESSION['reg_attempts'] ?>/3</small>
+                            <br><small><?= e($lang['failedAttempts']); ?> <?= $_SESSION['reg_attempts'] ?>/3</small>
                         <?php endif; ?>
                     </p>
                 </div>
 
             <?php else: ?>
-                <h1>Register New Tutor</h1>
+                <h1><?= e($lang['register']); ?></h1>
                 <div class="form-container">
                     <form method="post" action="regTutor.php">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                         <div>
-                            <label for="email">Email:</label>
-                            <input type="email" name="email" id="email" value="<?= e($email) ?>"
-                                onfocus="this.setAttribute('placeholder', 'Enter email')"
-                                onblur="this.removeAttribute('placeholder')" required>
+                            <label for="email"><?= e($lang['email']); ?></label>
+                            <input type="email" name="email" id="email" value="<?= e($email) ?>" required>
                         </div>
                         <div>
-                            <label for="userLogin">Create Username:</label>
+                            <label for="userLogin"><?= e($lang['username']); ?></label>
                             <input type="text" name="userLogin" id="userLogin" value="<?= e($userLogin) ?>"
                                 pattern="[a-z0-9-]{1,20}"
-                                title="Username can only contain lowercase letters, numbers, and dashes. Maximum 20 characters."
-                                onfocus="this.setAttribute('placeholder', 'Only a-z, 1-0, and -, max 20 characters')"
-                                onblur="this.removeAttribute('placeholder')" required>
+                                title="<?= e($lang['usernameRules']); ?>" required>
                         </div>
                         <div>
-                            <label for="userPassword">Create Password:</label>
-                            <input type="password" name="userPassword" id="userPassword"
-                                onfocus="this.setAttribute('placeholder', 'Enter password')"
-                                onblur="this.removeAttribute('placeholder')" required>
+                            <label for="userPassword"><?= e($lang['password']); ?></label>
+                            <input type="password" name="userPassword" id="userPassword" required>
                         </div>
                         <div>
-                            <label for="userPasswordConfirm">Confirm Password:</label>
-                            <input type="password" name="userPasswordConfirm" id="userPasswordConfirm"
-                                onfocus="this.setAttribute('placeholder', 'Re-enter password')"
-                                onblur="this.removeAttribute('placeholder')" required>
+                            <label for="userPasswordConfirm"><?= e($lang['confirmPassword']); ?></label>
+                            <input type="password" name="userPasswordConfirm" id="userPasswordConfirm" required>
                         </div>
-                        <button type="submit" name="register">Register</button>
+                        <button type="submit" name="register"><?= e($lang['register']); ?></button>
                     </form>
                     <p style="text-align: center; margin-top: 20px;">
-                        Already have an account? <a href="editTutor.php">Login here</a>
+                        <?= e($lang['already']); ?> <a href="editTutor.php"><?= e($lang['login']); ?></a>
                     </p>
                 </div>
             <?php endif; ?>
         </div>
     </main>
     <footer class="footer">
-        <small><a href="https://www.brunotutor.com">BrunoTutor.com</a> &copy; <?php echo date("Y"); ?></small><br>
-        <small><a href="https://www.brunotutor.com/regTutor.php">Create page</a> • <a href="https://www.brunotutor.com/tos.php">Terms of service</a></small>
+        <small><a href="index.php">BrunoTutor.com</a> &copy; <?php echo date("Y"); ?></small><br>
+        <small><a href="editTutor.php"><?= e($lang['login']); ?></a> / <a href="tos.php"><?= e($lang['report']); ?></a></small>
+        <br>
+        <small>
+            <select id="langSelect" onchange="changeLanguage()" style="margin-top: 10px; padding: 5px; border-radius: 4px; border: 1px solid #ddd;">
+                <?php foreach ($availableLanguages as $language): ?>
+                    <option value="<?= e($language['lang']); ?>" <?= $_SESSION['lang'] === $language['lang'] ? 'selected' : '' ?>>
+                        <?= e($language['UILanguage']); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </small>
+
+        <script>
+            function changeLanguage() {
+                const lang = document.getElementById('langSelect').value;
+                const currentPath = window.location.pathname;
+
+                let newHost = '';
+                if (lang === 'en') {
+                    newHost = 'brunotutor.com';
+                } else {
+                    newHost = lang + '.brunotutor.com';
+                }
+
+                window.location.href = 'https://' + newHost + currentPath;
+            }
+        </script>
     </footer>
 </body>
 

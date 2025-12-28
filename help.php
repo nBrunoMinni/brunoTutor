@@ -87,7 +87,7 @@ function e($str)
 <html>
 
 <head>
-    <title>BrunoTutor.com - <?= e($lang['terms']); ?></title>
+    <title>BrunoTutor.com - Cal.com</title>
     <link href="style.css" rel="stylesheet">
     <link href="sucStyle.css" rel="stylesheet">
     <link rel="icon" type="image/x-icon" href="home.ico">
@@ -97,16 +97,14 @@ function e($str)
 <body>
     <main class="main">
         <div class="success-container">
-            <h1><?= e($lang['terms']); ?></h1>
-            <p><?= e($lang['tos1']); ?></p>
-            <p><?= e($lang['tos2']); ?></p>
-            <p><?= e($lang['tos3']); ?></p>
-            <p><?= e($lang['tos4']); ?></p>
-            <p><?= e($lang['tos5']); ?></p>
-
-            <h1><?= e($lang['report']); ?></h1>
-            <p><?= e($lang['pleaseReport']); ?></p>
-            <b>nico@brunotutor.com</b><br>
+            <h1><?= e($lang['connectCal']); ?></h1>
+            <p><?= e($lang['usesCal']); ?></p>
+            <ol style="text-align: left;">
+                <li><?= e($lang['cal1']); ?></li>
+                <li><?= e($lang['cal2']); ?></li>
+                <li><?= e($lang['cal3']); ?></li>
+                <li><?= e($lang['cal4']); ?></li>
+            </ol>
             <a href="index.php" class="btn"><?= e($lang['returnHome']); ?></a>
         </div>
     </main>

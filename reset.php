@@ -16,28 +16,88 @@ if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
         exit;
     }
 }
+
+// Detect language from subdomain
+$httpHost = $_SERVER['HTTP_HOST'];
+
+if (preg_match('/^([a-z]{2})\.brunotutor\.com/', $httpHost, $matches)) {
+    $detectedLang = $matches[1];
+
+    $tempDbc = new mysqli($host, $username, $password, $database);
+    if (!$tempDbc->connect_error) {
+        $tempDbc->set_charset("utf8mb4");
+        $checkLang = $tempDbc->prepare("SELECT lang FROM UILanguage WHERE lang = ? LIMIT 1");
+        $checkLang->bind_param('s', $detectedLang);
+        $checkLang->execute();
+        $langResult = $checkLang->get_result();
+
+        if ($langResult && $langResult->num_rows === 1) {
+            $_SESSION['lang'] = $detectedLang;
+        } else {
+            $_SESSION['lang'] = 'en'; // Fallback English
+        }
+        $checkLang->close();
+        $tempDbc->close();
+    }
+} else {
+
+    if (!isset($_SESSION['lang'])) {
+        $_SESSION['lang'] = 'en';
+    }
+}
+
+$userLang = $_SESSION['lang'];
+
 $dbc = new mysqli($host, $username, $password, $database);
 if ($dbc->connect_error) {
     die("DB connection failed: " . $dbc->connect_error);
 }
+$dbc->set_charset("utf8mb4");
+
+$userLang = $_SESSION['lang'] ?? 'en';
+
+// Fetch UI language strings
+$stmt = $dbc->prepare("SELECT * FROM UILanguage WHERE lang = ? LIMIT 1");
+$stmt->bind_param('s', $userLang);
+$stmt->execute();
+$result = $stmt->get_result();
+
+if ($result && $result->num_rows === 1) {
+    $lang = $result->fetch_assoc();
+} else {
+    // Fallback English
+    $stmt = $dbc->prepare("SELECT * FROM UILanguage WHERE lang = 'en' LIMIT 1");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $lang = $result->fetch_assoc();
+}
+$stmt->close();
+
+// Fetch available languages
+$langStmt = $dbc->query("SELECT lang, UILanguage FROM UILanguage ORDER BY lang ASC");
+$availableLanguages = [];
+while ($langRow = $langStmt->fetch_assoc()) {
+    $availableLanguages[] = $langRow;
+}
+
 function e($str)
 {
     return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
 }
-function sendResetEmail($email, $code)
+
+function sendResetEmail($email, $code, $lang)
 {
     $to = $email;
-    $subject = "BrunoTutor Password Reset";
+    $subject = "BrunoTutor " . $lang['reset'];
     $message = "
     <html>
     <head>
-        <title>Password Reset</title>
+        <title>" . htmlspecialchars($lang['reset'], ENT_QUOTES, 'UTF-8') . "</title>
     </head>
     <body>
-        <p>You have requested to reset your BrunoTutor password.</p>
-        <p>Your verification code is: <strong>{$code}</strong></p>
-        <p>This code will expire in 10 minutes.</p>
-        <p>If you did not request this password reset, please ignore this email.</p>
+        <p>" . htmlspecialchars($lang['youHaveRequested'], ENT_QUOTES, 'UTF-8') . "</p>
+        <p>" . htmlspecialchars($lang['code'], ENT_QUOTES, 'UTF-8') . " <strong>{$code}</strong></p>
+        <p>" . htmlspecialchars($lang['expire'], ENT_QUOTES, 'UTF-8') . "</p>
     </body>
     </html>
     ";
@@ -46,6 +106,7 @@ function sendResetEmail($email, $code)
     $headers .= 'From: no-reply@brunotutor.com' . "\r\n";
     return mail($to, $subject, $message, $headers);
 }
+
 function generateVerificationCode()
 {
     return str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
@@ -55,7 +116,6 @@ $email = "";
 $error = "";
 $success = "";
 
-
 // Generate a new verification code
 if (isset($_GET['resend']) && isset($_SESSION['reset_email'])) {
     $verificationCode = generateVerificationCode();
@@ -63,23 +123,24 @@ if (isset($_GET['resend']) && isset($_SESSION['reset_email'])) {
     $_SESSION['reset_code'] = $verificationCode;
     $_SESSION['reset_expiry'] = $expiryTime;
     $_SESSION['reset_attempts'] = 0; // Reset attempts
-    $emailSent = sendResetEmail($_SESSION['reset_email'], $verificationCode);
+    $emailSent = sendResetEmail($_SESSION['reset_email'], $verificationCode, $lang);
     if ($emailSent) {
-        $success = "A new verification code has been sent to your email.";
+        $success = $lang['verificationSent'];
     } else {
-        $error = "Failed to send verification email. Please try again.";
+        $error = $lang['failed'];
     }
 }
+
 // Request password reset
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_reset'])) {
     if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        $error = "Security validation failed. Please try again.";
+        $error = $lang['failed'];
     } else {
         $email = $_POST['email'] ?? '';
         if (empty($email)) {
-            $error = "Email address is required.";
+            $error = $lang['required'];
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $error = "Please enter a valid email address.";
+            $error = $lang['emailValid'];
         } else {
             $stmtCheck = $dbc->prepare("SELECT userLogin FROM bruno WHERE email = ? LIMIT 1");
             $stmtCheck->bind_param("s", $email);
@@ -88,10 +149,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_reset'])) {
             if ($resCheck && $resCheck->num_rows > 0) {
                 $row = $resCheck->fetch_assoc();
                 $userLogin = $row['userLogin'];
-
                 $verificationCode = generateVerificationCode();
                 $expiryTime = time() + 600; // 10 minutes from now
-
                 $_SESSION['reset_email'] = $email;
                 $_SESSION['reset_userLogin'] = $userLogin;
                 $_SESSION['reset_code'] = $verificationCode;
@@ -105,17 +164,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_reset'])) {
                 $stmtLog->execute();
                 $_SESSION['reset_log_id'] = $dbc->insert_id; // Store the log ID
                 $stmtLog->close();
-                $emailSent = sendResetEmail($email, $verificationCode);
+                $emailSent = sendResetEmail($email, $verificationCode, $lang);
                 if ($emailSent) {
                     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
                     header("Location: reset.php?verify=1");
                     exit;
                 } else {
-                    $error = "Failed to send verification email. Please try again.";
+                    $error = $lang['failed'];
                 }
             } else {
                 // Log even nothing attempts
-                $success = "If your email is registered, you will receive a password reset code shortly.";
+                $success = $lang['ifYourEmail'];
                 $currentTime = date('Y-m-d H:i:s');
                 $ipAddress = $_SERVER['REMOTE_ADDR'];
                 $status = "invalid_email";
@@ -133,13 +192,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_reset'])) {
 // Verify email with code
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify'])) {
     if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        $error = "Security validation failed. Please try again.";
+        $error = $lang['failed'];
     } else {
         $enteredCode = $_POST['verification_code'] ?? '';
         if (!isset($_SESSION['reset_code']) || !isset($_SESSION['reset_expiry'])) {
-            $error = "Verification session expired. Please start over.";
+            $error = $lang['verificationFail'];
         } elseif (time() > $_SESSION['reset_expiry']) {
-            $error = "Verification code has expired. Please start over.";
+            $error = $lang['verificationFail'];
             unset($_SESSION['reset_code']);
             unset($_SESSION['reset_expiry']);
             unset($_SESSION['reset_attempts']);
@@ -149,8 +208,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify'])) {
             }
             $_SESSION['reset_attempts']++;
             if ($_SESSION['reset_attempts'] >= 3) {
-                $error = "Too many failed attempts. Your verification code has been invalidated for security reasons. Please request a new code.";
-
+                $error = $lang['verificationFail'];
                 // Log failed attempts
                 if (isset($_SESSION['reset_log_id'])) {
                     $logId = $_SESSION['reset_log_id'];
@@ -166,7 +224,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify'])) {
                 unset($_SESSION['reset_attempts']);
             } else {
                 $remainingAttempts = 3 - $_SESSION['reset_attempts'];
-                $error = "Invalid verification code. Please try again. You have {$remainingAttempts} attempts remaining.";
+                $error = $lang['invalid'] . " {$remainingAttempts} " . $lang['attempts'];
             }
         } else {
             // Valid
@@ -190,16 +248,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify'])) {
 // Set new password
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
     if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        $error = "Security validation failed. Please try again.";
+        $error = $lang['failed'];
     } else {
         $newPassword = $_POST['new_password'] ?? '';
         $confirmPassword = $_POST['confirm_password'] ?? '';
         if (!isset($_SESSION['reset_verified']) || $_SESSION['reset_verified'] !== true) {
-            $error = "Unauthorized access. Please start the password reset process again.";
+            $error = $lang['verificationFail'];
         } elseif (empty($newPassword) || empty($confirmPassword)) {
-            $error = "Both password fields are required.";
+            $error = $lang['required'];
         } elseif ($newPassword !== $confirmPassword) {
-            $error = "Passwords do not match. Please try again.";
+            $error = $lang['passwordMatch'];
         } else {
             $userLogin = $_SESSION['reset_userLogin'];
             $userHash = password_hash($newPassword, PASSWORD_DEFAULT);
@@ -227,9 +285,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
                 unset($_SESSION['reset_expiry']);
                 unset($_SESSION['reset_verified']);
                 unset($_SESSION['reset_log_id']);
-                $success = "Your password has been successfully reset. You can now log in with your new password.";
+                $success = $lang['success'] . " " . $lang['reset'];
             } else {
-                $error = "Failed to update password. Please try again.";
+                $error = $lang['failed'];
             }
         }
     }
@@ -239,7 +297,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
 <html>
 
 <head>
-    <title>BrunoTutor.com - Reset Password</title>
+    <title>BrunoTutor.com - <?= e($lang['reset']); ?></title>
     <link href="style.css" rel="stylesheet">
     <link href="logStyle.css" rel="stylesheet">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -267,37 +325,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
     <main class="main">
         <div class="container" style="max-width: 400px; margin: 0 auto; align-items: center; text-align: center;">
             <?php if (!empty($error)): ?>
-                <p style="color:red;"><strong>Error:</strong> <?= e($error) ?></p>
+                <p style="color:red;"><strong><?= e($lang['error']); ?></strong> <?= e($error) ?></p>
             <?php endif; ?>
             <?php if (!empty($success)): ?>
                 <div class="success-container">
                     <div class="success-icon">✓</div>
-                    <p style="color:green;"><strong>Success:</strong> <?= e($success) ?></p>
+                    <p style="color:green;"><strong><?= e($lang['success']); ?></strong> <?= e($success) ?></p>
                     <p style="text-align: center; margin-top: 20px;">
-                        <a href="editTutor.php">Return to Login</a>
+                        <a href="editTutor.php"><?= e($lang['login']); ?></a>
                     </p>
                 </div>
             <?php elseif (isset($_GET['new_password']) && isset($_SESSION['reset_verified'])): ?>
-                <h1>Set New Password</h1>
-                <p>Please enter your new password:</p>
+                <h1><?= e($lang['setNewPassword']); ?></h1>
                 <div class="form-container">
                     <form method="post" action="reset.php?new_password=1">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                         <div>
-                            <label for="new_password">New Password:</label>
+                            <label for="new_password"><?= e($lang['password']); ?></label>
                             <input type="password" name="new_password" id="new_password" required>
                         </div>
                         <div>
-                            <label for="confirm_password">Confirm Password:</label>
+                            <label for="confirm_password"><?= e($lang['confirmPassword']); ?></label>
                             <input type="password" name="confirm_password" id="confirm_password" required>
                         </div>
-                        <button type="submit" name="reset_password">Reset Password</button>
+                        <button type="submit" name="reset_password"><?= e($lang['reset']); ?></button>
                     </form>
                 </div>
             <?php elseif (isset($_GET['verify'])): ?>
-                <h1>Verify Your Email</h1>
-                <p>A verification code has been sent to <strong><?= e($_SESSION['reset_email'] ?? '') ?></strong></p>
-                <p>Please enter the 6-digit code to continue:</p>
+                <h1><?= e($lang['verify']); ?></h1>
+                <p><?= e($lang['verificationSent']); ?> <strong><?= e($_SESSION['reset_email'] ?? '') ?></strong></p>
+                <p><?= e($lang['pleaseEnter']); ?></p>
                 <div class="form-container">
                     <form method="post" action="reset.php?verify=1">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
@@ -305,40 +362,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
                             <input type="text" name="verification_code" class="verification-input"
                                 maxlength="6" pattern="[0-9]{6}" placeholder="000000" required>
                         </div>
-                        <button type="submit" name="verify">Verify Code</button>
+                        <button type="submit" name="verify"><?= e($lang['verify']); ?></button>
                     </form>
                     <p style="text-align: center; margin-top: 20px;">
-                        <a href="reset.php">Back to Reset Password</a>
+                        <a href="reset.php"><?= e($lang['reset']); ?></a>
                         <?php if (isset($_SESSION['reset_attempts']) && $_SESSION['reset_attempts'] > 0): ?>
-                            <br><small>Failed attempts: <?= $_SESSION['reset_attempts'] ?>/3</small>
+                            <br><small><?= e($lang['failedAttempts']); ?> <?= $_SESSION['reset_attempts'] ?>/3</small>
                         <?php endif; ?>
                         <?php if (!isset($_SESSION['reset_code']) || (isset($_SESSION['reset_attempts']) && $_SESSION['reset_attempts'] >= 3)): ?>
-                            <br><a href="reset.php?resend=1">Request a new code</a>
+                            <br><a href="reset.php?resend=1"><?= e($lang['requestReset']); ?></a>
                         <?php endif; ?>
                     </p>
                 </div>
             <?php else: ?>
-                <h1>Reset Password</h1>
-                <p>Enter your email address to receive reset link:</p>
+                <h1><?= e($lang['reset']); ?></h1>
                 <div class="form-container">
                     <form method="post" action="reset.php">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                         <div>
-                            <label for="email">Email:</label>
+                            <label for="email"><?= e($lang['email']); ?></label>
                             <input type="email" name="email" id="email" value="<?= e($email) ?>" required>
                         </div>
-                        <button type="submit" name="request_reset">Request Reset</button>
+                        <button type="submit" name="request_reset"><?= e($lang['requestReset']); ?></button>
                     </form>
                     <p style="text-align: center; margin-top: 20px;">
-                        Remember your password? <a href="editTutor.php">Login here</a>
+                        <a href="editTutor.php"><?= e($lang['login']); ?></a>
                     </p>
                 </div>
             <?php endif; ?>
         </div>
     </main>
     <footer class="footer">
-        <small><a href="https://www.brunotutor.com">BrunoTutor.com</a> &copy; <?php echo date("Y"); ?></small><br>
-        <small><a href="https://www.brunotutor.com/regTutor.php">Create page</a> • <a href="https://www.brunotutor.com/tos.php">Terms of service</a></small>
+        <small><a href="index.php">BrunoTutor.com</a> &copy; <?php echo date("Y"); ?></small><br>
+        <small><a href="editTutor.php"><?= e($lang['login']); ?></a> / <a href="tos.php"><?= e($lang['report']); ?></a></small>
+        <br>
+        <small>
+            <select id="langSelect" onchange="changeLanguage()" style="margin-top: 10px; padding: 5px; border-radius: 4px; border: 1px solid #ddd;">
+                <?php foreach ($availableLanguages as $language): ?>
+                    <option value="<?= e($language['lang']); ?>" <?= $_SESSION['lang'] === $language['lang'] ? 'selected' : '' ?>>
+                        <?= e($language['UILanguage']); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </small>
+
+        <script>
+            function changeLanguage() {
+                const lang = document.getElementById('langSelect').value;
+                const currentPath = window.location.pathname;
+
+                let newHost = '';
+                if (lang === 'en') {
+                    newHost = 'brunotutor.com';
+                } else {
+                    newHost = lang + '.brunotutor.com';
+                }
+
+                window.location.href = 'https://' + newHost + currentPath;
+            }
+        </script>
     </footer>
 </body>
 

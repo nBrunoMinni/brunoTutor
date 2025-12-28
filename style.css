@@ -115,8 +115,10 @@ a {
 }
 
 img {
-  clip-path: circle(46%);
-  width: 100px;
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 50px; /* Adjust this value for more/less rounding */
 }
 
 .inline-content {
@@ -195,3 +197,4 @@ img {
   font-size: 0.9em;
   white-space: nowrap;
 }
+
